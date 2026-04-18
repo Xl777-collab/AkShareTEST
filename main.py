@@ -144,16 +144,10 @@ def generate_ai_report(market_data_md):
     print(ai_report_content)
     print("\n==============================================")
 
-    # 自动保存为 Markdown 文件
+# 自动保存为 Markdown 文件
     today_str = datetime.date.today().strftime("%Y-%m-%d")
     file_name = f"{today_str}-A股量化复盘.md"
     with open(file_name, "w", encoding="utf-8") as f:
-        f.write(ai_report_content)
-    print(f"\n成功！报告已自动保存为文件: {file_name}")
-
-if __name__ == "__main__":
-    md_data = get_market_data()
-    generate_ai_report(md_data)
         f.write(ai_report_content)
     print(f"\n成功！报告已自动保存为文件: {file_name}")
 

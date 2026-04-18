@@ -21,33 +21,29 @@ def get_market_data():
             else:
                 raise e
                 
-    # 强制将需要运算的列转换为数值格式，防止报错
     spot_df['代码'] = spot_df['代码'].astype(str)
     for col in ['换手率', '总市值', '最新价', '涨跌幅', '成交额']:
         spot_df[col] = pd.to_numeric(spot_df[col], errors='coerce')
         
     # ================= 第一层漏斗：极速初筛 =================
-    # 2. 市值过滤：总市值必须大于 30 亿 (3,000,000,000)
+    # 基础过滤：市值大于 30 亿，换手率 3%-30%
     spot_df = spot_df[spot_df['总市值'] >= 3000000000]
-    
-    # 3. 活跃度过滤：换手率在 3% 到 30% 之间（完美破解大盘股霸榜，只找真正活跃的标的）
     spot_df = spot_df[(spot_df['换手率'] >= 3.0) & (spot_df['换手率'] <= 30.0)]
     
-    # 4. 按换手率降序，取前 300 只（这极大减轻了后续计算压力）
+    # 提速优化：取换手率最高的前300，大幅缩短云端运算时间
     pool_df = spot_df.sort_values(by='换手率', ascending=False).head(300).copy()
     stock_list = pool_df['代码'].tolist()
     
-    print(f"初筛完毕，强势股池剩余 {len(stock_list)} 只股票。开始计算 120 天历史数据，请耐心等待（约 1-2 分钟）...\n")
+    print(f"初筛完毕，强势股池剩余 {len(stock_list)} 只股票。开始计算 120 天历史数据...\n")
     
     final_stocks = []
     
-    # ================= 第二层漏斗：高阶量化策略精筛 =================
+    # ================= 第二层漏斗：新版高阶策略精筛 =================
     for code in stock_list:
         try:
-            # 拉取该股票的历史日线数据 (qfq = 前复权，保证价格连贯性)
             hist_df = ak.stock_zh_a_hist(symbol=code, period="daily", adjust="qfq")
             if len(hist_df) < 120:
-                continue # 上市不足 120 天的次新股直接跳过
+                continue 
                 
             df_120 = hist_df.tail(120).reset_index(drop=True)
             df_recent_60 = df_120.tail(60).reset_index(drop=True)
@@ -56,51 +52,47 @@ def get_market_data():
             current_price = df_120['收盘'].iloc[-1]
             price_60_days_ago = df_recent_60['开盘'].iloc[0]
             
-            # 策略 1：过去60天涨幅 20%-50%
-            price_increase = (current_price - price_60_days_ago) / price_60_days_ago
-            cond_1 = 0.20 <= price_increase <= 0.50
+            # 条件 1：趋势确立，现价 > 30日均线 > 60日均线
+            ma30 = df_120['收盘'].rolling(window=30).mean().iloc[-1]
+            ma60 = df_120['收盘'].rolling(window=60).mean().iloc[-1]
+            cond_1 = current_price > ma30 > ma60
             
-            # 策略 2：近60天交易量 > 过去60-120天交易量
+            # 条件 2：区间涨幅，过去60天内涨幅在 20%-50%
+            price_increase = (current_price - price_60_days_ago) / price_60_days_ago
+            cond_2 = 0.20 <= price_increase <= 0.50
+            
+            # 条件 3：量能结构，近60天总成交量 > 前置60天，且近10天均量 > 60天均量的 1.1 倍
             vol_recent_60 = df_recent_60['成交量'].sum()
             vol_past_60 = df_past_60['成交量'].sum()
-            cond_2 = vol_recent_60 > vol_past_60
+            avg_vol_10 = df_recent_60.tail(10)['成交量'].mean()
+            avg_vol_60 = df_recent_60['成交量'].mean()
             
-            # 策略 3：近10天均量 > 1.2 * 近60天均量
-            cond_3 = df_recent_60.tail(10)['成交量'].mean() > (df_recent_60['成交量'].mean() * 1.2)
+            cond_3 = (vol_recent_60 > vol_past_60) and (avg_vol_10 > avg_vol_60 * 1.1)
             
-            # 策略 4：现价距离近 60 天最高点回撤不足 10%
-            cond_4 = current_price >= (df_recent_60['最高'].max() * 0.90)
-            
-            # 策略 5 (新增)：现价 > 20日均价 > 60日均价 (多头排列)
-            ma20 = df_120['收盘'].rolling(window=20).mean().iloc[-1]
-            ma60 = df_120['收盘'].rolling(window=60).mean().iloc[-1]
-            cond_5 = current_price > ma20 > ma60
-            
-            # 只有这 5 个严苛条件同时满足，才会被选中！
-            if cond_1 and cond_2 and cond_3 and cond_4 and cond_5:
+            if cond_1 and cond_2 and cond_3:
                 stock_name = pool_df[pool_df['代码'] == code]['名称'].values[0]
                 final_stocks.append({
                     '代码': code,
                     '名称': stock_name,
                     '最新价': round(current_price, 2),
-                    '20日线': round(ma20, 2),
+                    '30日线': round(ma30, 2),
                     '60日线': round(ma60, 2),
                     '60日涨幅': f"{round(price_increase * 100, 2)}%",
-                    '量能放大倍数': round(vol_recent_60 / vol_past_60, 2)
+                    '近期量能放大': round(vol_recent_60 / vol_past_60, 2)
                 })
-                print(f"🔥 捕获完美策略标的：{stock_name} ({code})")
+                print(f"🔥 捕获新策略标的：{stock_name} ({code})")
                 
-            time.sleep(0.1) # 短暂休眠，防止被东方财富封禁 IP
+            time.sleep(0.1) 
             
         except Exception as e:
             continue
             
-    print(f"\n策略计算完毕，共找出 {len(final_stocks)} 只符合极其严苛要求的股票！")
+    print(f"\n策略计算完毕，共找出 {len(final_stocks)} 只符合要求的股票！")
     
     if len(final_stocks) > 0:
         return pd.DataFrame(final_stocks).to_markdown(index=False)
     else:
-        return "今日极其严苛的高级量化策略下，无完全符合条件的股票。"
+        return "今日新版高级量化策略下，无完全符合条件的股票。"
 
 def generate_ai_report(market_data_md):
     print("\n正在呼叫大模型撰写深度研报...\n")
@@ -111,27 +103,28 @@ def generate_ai_report(market_data_md):
 
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     
-    # ================= AI Prompt 同步升级 =================
     prompt = f"""
     你是一个华尔街顶级的量化对冲基金经理（精通威客夫吸筹理论与 CANSLIM 突破法则）。
     
     今天，我的高频量化系统跑出了极高胜率的【均线多头+趋势突破放量模型】。
-    系统的严苛筛选条件如下：
-    1. 基础过滤：市值大于 30 亿，换手率 3%-30%，剔除了 ST 股及高控盘微盘股。
-    2. 趋势确立：现价 > 20日均线 > 60日均线（完美的均线发散多头排列）。
+    调整系统的严苛筛选条件如下：
+    1. 基础过滤：市值大于 30 亿，换手率 3%-30%。
+    2. 趋势确立：现价 > 30日均线 > 60日均线（完美的均线发散多头排列）。
     3. 区间涨幅：过去60天内涨幅在 20%-50%（处于主升浪初期，未严重透支）。
-    4. 量能结构：近60天总成交量显著大于前置的60天，且最近10天均量大于60天均量的1.2倍（资金加速抢筹）。
-    5. 筹码稳固：现价距离近60天最高点回撤不足10%（极其强势的横盘整理或突破形态）。
+    4. 量能结构：近60天总成交量显著大于前置的60天，且最近10天均量大于60天均量的1.1倍（资金加速抢筹）。
     
-    以下是从 5000 只股票中杀出重围的最终核心标的：
+    以下是从 A 股市场中杀出重围的最终核心标的：
     
     {market_data_md}
     
-    请根据上述数据，撰写一份极具深度的投资内参报告：
-    1. 【策略适用性验证】：评估当前 A 股环境下，此套“右侧强趋势突破”逻辑的胜率与市场环境匹配度。
-    2. 【标的深度透视】：针对表格中的股票，结合量价关系与多头排列特征，分析主力意图。
-    3. 【铁律与风控】：对于这类形态，一旦买入，未来最危险的破位信号（如跌破20日线、放量滞涨等）是什么？给出明确的防守底线。
-    要求：语气干练、客观专业。使用 Markdown 排版，重点结论加粗。
+    请严格根据上述数据，并调用你对 A 股上市公司的深度产业知识，撰写一份极具深度的投资内参报告。报告必须包含以下四个模块：
+    
+    1. 【量化策略当前环境匹配度】：评估当前 A 股宏观情绪下，此套“右侧强趋势突破”逻辑的胜率如何？
+    2. 【行业与基本面共振分析（核心）】：逐一分析表格中股票的所属核心板块、主营业务壁垒。深度剖析：为什么资金会在这个阶段抢筹这些行业？是否存在政策催化、产业周期反转或业绩超预期的潜在逻辑？（如标的较多，可分类归纳为2-3条主线）
+    3. 【技术与主力意图透视】：结合表格中的量能放大倍数与涨幅，分析主力资金在上述基本面背景下的介入深度与后续做多意图。
+    4. 【防守铁律】：对于这类沿着 30 日生命线推升的强势形态，给出明确的防守底线（如破位特征）和止盈/止损纪律。
+    
+    要求：语气干练、客观专业，绝不含糊其辞。使用 Markdown 排版，重点结论加粗。
     """
     
     response = client.chat.completions.create(
@@ -144,7 +137,6 @@ def generate_ai_report(market_data_md):
     print(ai_report_content)
     print("\n==============================================")
 
-# 自动保存为 Markdown 文件
     today_str = datetime.date.today().strftime("%Y-%m-%d")
     file_name = f"{today_str}-A股量化复盘.md"
     with open(file_name, "w", encoding="utf-8") as f:

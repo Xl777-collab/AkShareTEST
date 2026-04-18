@@ -3,13 +3,29 @@ import pandas as pd
 import os
 from openai import OpenAI
 
+import time # 需要在顶部引入 time 模块
+
 def get_market_data():
-    print("正在从 AkShare 获取 A 股最新行情，请稍候...")
-    df = ak.stock_zh_a_spot_em()
+    max_retries = 3  # 设置最大重试次数为 3 次
+    df = None
+    
+    for attempt in range(max_retries):
+        try:
+            print(f"正在从 AkShare 获取 A 股最新行情 (尝试第 {attempt + 1} 次)...")
+            df = ak.stock_zh_a_spot_em()
+            break  # 如果成功拿到数据，就跳出循环
+        except Exception as e:
+            print(f"获取失败，原因: {e}")
+            if attempt < max_retries - 1:
+                print("网络可能存在波动，等待 5 秒后重试...\n")
+                time.sleep(5)
+            else:
+                print("已达到最大重试次数，放弃获取。")
+                raise e  # 如果 3 次都失败了，再报错
+                
     filtered_df = df[df['涨跌幅'] >= 9.0].copy()
     core_columns = ['代码', '名称', '最新价', '涨跌幅', '换手率', '成交额']
     
-    # 去掉了 .head(20)，现在会获取所有符合条件的股票
     core_data = filtered_df[core_columns]
     data_md = core_data.to_markdown(index=False)
     return data_md

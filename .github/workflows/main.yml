@@ -1,32 +1,29 @@
 name: A股收盘复盘自动化
 
 on:
-  workflow_dispatch: # 这个指令非常关键，它允许我们在网页上“手动点击按钮”来随时运行测试
-  # 下面这两行被注释掉了，未来如果你想每天下午 4 点自动跑，可以把前面的 # 删掉
-  # schedule:
-  #   - cron: '0 8 * * 1-5' 
+  workflow_dispatch: 
 
 jobs:
   build-and-run:
-    runs-on: ubuntu-latest # 给我们分配一台最新的 Ubuntu Linux 云端电脑
+    runs-on: ubuntu-latest 
 
     steps:
-      # 1. 把你的代码仓库下载到这台云端电脑上
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. 给云端电脑安装 Python 环境
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 3. 安装我们需要的第三方库（注意：转 Markdown 必须安装 tabulate）
+      # 增加了 openai 库的安装
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install akshare pandas tabulate
+          pip install akshare pandas tabulate openai
 
-      # 4. 执行我们刚才写的 Python 脚本
+      # 把环境变量（API Key）传给 Python 脚本
       - name: Run main.py
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: python main.py

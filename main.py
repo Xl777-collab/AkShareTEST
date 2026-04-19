@@ -12,6 +12,7 @@ from email import encoders
 from email.header import Header
 import markdown
 from xhtml2pdf import pisa
+import urllib.request
 
 # ================= 第一部分：量化选股逻辑 =================
 
@@ -72,7 +73,7 @@ def get_market_data():
             
             # 五大核心策略条件
             cond_1 = current_price > ma30 > ma60 # 多头排列
-            cond_2 = 0.20 <= price_increase <= 0.50 # 60日涨幅适中
+            cond_2 = 0.10 <= price_increase <= 0.50 # 60日涨幅适中
             cond_3 = vol_recent_60 > vol_past_60 # 中期放量
             cond_4 = avg_vol_10 > (avg_vol_60 * 1.1) # 近期放量
             cond_5 = current_price >= (df_recent_60['最高'].max() * 0.90) # 处于高位附近
@@ -96,27 +97,54 @@ def get_market_data():
 # ================= 第二部分：PDF 生成逻辑 =================
 
 def generate_pdf(text, filename):
+    print("准备生成 PDF，检查中文字体...")
+    
+    # 1. 确保中文字体存在（全自动下载 Google 开源字体 Noto Sans SC）
+    font_filename = "NotoSansSC-Regular.ttf"
+    font_path = os.path.abspath(font_filename)
+
+    if not os.path.exists(font_path):
+        print("首次运行，正在下载中文字体文件 (约 10MB)，请稍候...")
+        try:
+            # 从 Google Fonts 的 Github 镜像源下载字体
+            font_url = "https://github.com/google/fonts/raw/main/ofl/notosanssc/NotoSansSC-Regular.ttf"
+            urllib.request.urlretrieve(font_url, font_path)
+            print("中文字体下载成功！")
+        except Exception as e:
+            print(f"❌ 字体下载失败: {e}")
+
+    # 2. 将 Markdown 转为 HTML，并在 CSS 中强制嵌入中文字体
+    # 注意 f-string 里的 CSS 大括号需要用双大括号 {{ }} 转义
     html_content = f"""
     <html>
     <head>
         <meta charset="utf-8">
         <style>
-            body {{ font-family: Helvetica, Arial, sans-serif; line-height: 1.6; padding: 20px; }}
-            h1, h2, h3 {{ color: #1a5276; border-bottom: 1px solid #eee; padding-bottom: 5px; }}
-            table {{ border-collapse: collapse; width: 100%; margin: 15px 0; font-size: 12px; }}
-            th, td {{ border: 1px solid #ddd; padding: 6px; text-align: left; }}
-            th {{ background-color: #f8f9f9; }}
-            .footer {{ font-size: 10px; color: #999; text-align: center; margin-top: 30px; }}
+            /* 定义我们刚刚下载的中文字体 */
+            @font-face {{
+                font-family: 'NotoSansSC';
+                src: url('{font_path}');
+            }}
+            /* 全局强制使用该中文字体 */
+            body {{ font-family: 'NotoSansSC', Helvetica, Arial, sans-serif; line-height: 1.6; padding: 20px; color: #333; }}
+            h1, h2, h3 {{ color: #1a5276; border-bottom: 2px solid #eee; padding-bottom: 8px; }}
+            table {{ border-collapse: collapse; width: 100%; margin: 20px 0; font-size: 13px; }}
+            th, td {{ border: 1px solid #ddd; padding: 10px; text-align: left; }}
+            th {{ background-color: #f4f6f7; color: #333; font-weight: bold; }}
+            .footer {{ font-size: 11px; color: #999; text-align: center; margin-top: 40px; border-top: 1px solid #eee; padding-top: 10px; }}
         </style>
     </head>
     <body>
         {markdown.markdown(text, extensions=['tables'])}
-        <div class="footer">报告生成时间：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
+        <div class="footer">本报告由 AI 量化小秘书自动生成 | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</div>
     </body>
     </html>
     """
+    
+    # 3. 生成包含完美中文排版的 PDF
     with open(filename, "wb") as f:
         pisa.CreatePDF(html_content, dest=f)
+    print(f"📄 PDF 文件已生成: {filename}")
 
 # ================= 第三部分：邮件发送逻辑 =================
 
@@ -195,3 +223,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

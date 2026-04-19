@@ -140,10 +140,8 @@ def send_email(content, pdf_path, date_str):
         msg.attach(part)
 
     try:
-        # 改用 587 端口，这对于海外云服务器更加友好
-        server = smtplib.SMTP('smtp.qq.com', 587)
-        server.ehlo()
-        server.starttls() # 开启安全传输
+        # 改成网易 163 的服务器，使用最稳定的 SSL 465 端口
+        server = smtplib.SMTP_SSL('smtp.163.com', 465)
         server.login(my_email, password)
         server.sendmail(my_email, [my_email], msg.as_string())
         server.quit()
@@ -161,15 +159,19 @@ def main():
     api_key = os.getenv("DEEPSEEK_API_KEY")
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     
+# 提前获取一下当天的真实日期
+    local_now = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+    date_tag = local_now.strftime("%Y年%m月%d日")
+
     prompt = f"""
-    你是一个华尔街顶级的量化对冲基金经理。请基于以下量化筛选出的异动标的：
+    你是一个华尔街顶级的量化对冲基金经理。今天是 {date_tag}，请基于以下量化筛选出的异动标的：
     {md_table}
     
     撰写深度内参，包含：
     1. 【行业与业务深度透视】：调用你的知识库，严格分析这些股票所属的行业板块、核心业务壁垒及当前产业逻辑。
     2. 【主力意图剖析】：结合量价数据分析资金介入深度。
     3. 【风控底线】：明确给出沿着30日线推升形态的防守位。
-    要求：专业客观，Markdown排版。
+    要求：专业客观，Markdown排版，文章标题必须包含今天的真实日期 {date_tag}。
     """
     
     response = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "user", "content": prompt}])

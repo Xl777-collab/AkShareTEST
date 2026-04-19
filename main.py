@@ -41,7 +41,7 @@ def get_market_data():
     spot_df = spot_df[(spot_df['换手率'] >= 3.0) & (spot_df['换手率'] <= 30.0)]
     
     # 取换手率最高的前 150 只股票进行深度计算（兼顾效率与质量）
-    pool_df = spot_df.sort_values(by='换手率', ascending=False).head(150).copy()
+    pool_df = spot_df.sort_values(by='换手率', ascending=False).head(300).copy()
     stock_list = pool_df['代码'].tolist()
     
     print(f"初筛完毕，进入精筛池标的共 {len(stock_list)} 只。开始回溯历史数据...")
@@ -140,7 +140,10 @@ def send_email(content, pdf_path, date_str):
         msg.attach(part)
 
     try:
-        server = smtplib.SMTP_SSL('smtp.qq.com', 465)
+        # 改用 587 端口，这对于海外云服务器更加友好
+        server = smtplib.SMTP('smtp.qq.com', 587)
+        server.ehlo()
+        server.starttls() # 开启安全传输
         server.login(my_email, password)
         server.sendmail(my_email, [my_email], msg.as_string())
         server.quit()

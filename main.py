@@ -11,10 +11,6 @@ from email.mime.base import MIMEBase
 from email import encoders
 from email.header import Header
 import markdown
-from xhtml2pdf import pisa
-import urllib.request
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 
 # ================= 第一部分：量化选股逻辑 =================
 
@@ -96,43 +92,33 @@ def get_market_data():
         return pd.DataFrame(final_stocks).to_markdown(index=False)
     return "今日量化模型未筛选出符合条件的标的。"
 
-# ================= 第二部分：PDF 生成逻辑 =================
+# ================= 第二部分：HTML 生成逻辑 =================
 
-def generate_pdf(text, filename):
-    print("准备生成 PDF，检查中文字体...")
+def generate_html(text, filename):
+    print("准备生成排版精美的 HTML 研报...")
     
-    font_filename = "NotoSansSC-Regular.ttf"
-    font_path = os.path.abspath(font_filename)
-
-    # 增加了文件大小校验，防止下载了损坏的空文件
-    if not os.path.exists(font_path) or os.path.getsize(font_path) < 1024 * 1024:
-        print("正在下载中文字体文件 (约 10MB)，请耐心等待...")
-        try:
-            font_url = "https://github.com/google/fonts/raw/main/ofl/notosanssc/NotoSansSC-Regular.ttf"
-            urllib.request.urlretrieve(font_url, font_path)
-            print("中文字体下载成功！")
-        except Exception as e:
-            print(f"❌ 字体下载失败: {e}")
-
-    # 【核心杀招】：直接将字体注册到 PDF 的底层渲染引擎 ReportLab 中
-    try:
-        pdfmetrics.registerFont(TTFont('NotoSansSC', font_path))
-    except Exception as e:
-        print(f"⚠️ 字体注册失败，可能影响中文显示: {e}")
-
-    # 在 CSS 中直接呼叫刚才注册的引擎名称 'NotoSansSC'
+    # 这里的 CSS 样式针对手机和 PC 邮件客户端做了专门优化
     html_content = f"""
+    <!DOCTYPE html>
     <html>
     <head>
         <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            /* 强制全局使用注册好的中文字体，不要加其他英文字体备选，防止引擎迷失 */
-            body {{ font-family: 'NotoSansSC'; line-height: 1.6; padding: 20px; color: #333; }}
-            h1, h2, h3 {{ color: #1a5276; border-bottom: 2px solid #eee; padding-bottom: 8px; }}
-            table {{ border-collapse: collapse; width: 100%; margin: 20px 0; font-size: 13px; }}
-            th, td {{ border: 1px solid #ddd; padding: 10px; text-align: left; }}
-            th {{ background-color: #f4f6f7; color: #333; font-weight: bold; }}
-            .footer {{ font-size: 11px; color: #999; text-align: center; margin-top: 40px; border-top: 1px solid #eee; padding-top: 10px; }}
+            body {{ 
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
+                line-height: 1.6; 
+                color: #333; 
+                max-width: 900px; 
+                margin: 0 auto; 
+                padding: 20px; 
+            }}
+            h1, h2, h3 {{ color: #1a5276; border-bottom: 2px solid #eee; padding-bottom: 8px; margin-top: 30px; }}
+            table {{ border-collapse: collapse; width: 100%; margin: 20px 0; font-size: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
+            th, td {{ border: 1px solid #e1e4e8; padding: 12px; text-align: left; }}
+            th {{ background-color: #f6f8fa; color: #24292e; font-weight: 600; }}
+            strong {{ color: #d35400; }}
+            .footer {{ font-size: 12px; color: #999; text-align: center; margin-top: 50px; border-top: 1px solid #eee; padding-top: 15px; }}
         </style>
     </head>
     <body>
@@ -142,14 +128,17 @@ def generate_pdf(text, filename):
     </html>
     """
     
-    with open(filename, "wb") as f:
-        pisa.CreatePDF(html_content, dest=f)
-    print(f"📄 PDF 文件已生成: {filename}")
+    # 保存一份 HTML 文件到 GitHub 仓库备查
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    print(f"📄 HTML 文件已生成: {filename}")
+    
+    return html_content
 
 # ================= 第三部分：邮件发送逻辑 =================
 
-def send_email(content, pdf_path, date_str):
-    my_email = "18989565457@163.com"  # FIXME: 请替换为你的QQ邮箱
+def send_email(html_body, html_path, date_str):
+    my_email = "18989565457@163.com"  # 你的网易邮箱
     password = os.getenv("EMAIL_AUTH_CODE")
     if not password: return
 
@@ -158,36 +147,35 @@ def send_email(content, pdf_path, date_str):
     msg['To'] = Header("策略持有人", 'utf-8')
     msg['Subject'] = Header(f"📈 深度研报：A股量化复盘 ({date_str})", 'utf-8')
 
-    msg.attach(MIMEText("您好！今日量化筛选结果及深度产业分析已生成，请查阅附件 PDF。", 'plain', 'utf-8'))
+    # 【极其惊艳的改进】：直接将带排版样式的 HTML 作为邮件正文！
+    msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
-    with open(pdf_path, "rb") as f:
+    # 同时也将 HTML 文件作为附件发送，方便你在电脑上用浏览器全屏打开
+    with open(html_path, "rb") as f:
         part = MIMEBase('application', 'octet-stream')
         part.set_payload(f.read())
         encoders.encode_base64(part)
-        part.add_header('Content-Disposition', f'attachment; filename={pdf_path}')
+        part.add_header('Content-Disposition', f'attachment; filename={html_path}')
         msg.attach(part)
 
     try:
-        # 改成网易 163 的服务器，使用最稳定的 SSL 465 端口
+        # 使用 163 邮箱的 465 端口发送
         server = smtplib.SMTP_SSL('smtp.163.com', 465)
         server.login(my_email, password)
         server.sendmail(my_email, [my_email], msg.as_string())
         server.quit()
-        print("🎉 研报邮件已成功送达！")
+        print("🎉 研报邮件已成功送达！快去查收吧！")
     except Exception as e:
         print(f"❌ 邮件发送失败: {e}")
 
 # ================= 第四部分：主控制流 =================
 
 def main():
-    # 1. 选股
     md_table = get_market_data()
     
-    # 2. 调用 AI 分析
     api_key = os.getenv("DEEPSEEK_API_KEY")
     client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
     
-# 提前获取一下当天的真实日期
     local_now = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
     date_tag = local_now.strftime("%Y年%m月%d日")
 
@@ -205,21 +193,20 @@ def main():
     response = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "user", "content": prompt}])
     ai_report = response.choices[0].message.content
     
-    # 3. 命名与保存 (修正时区)
-    local_now = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
     time_tag = local_now.strftime("%Y-%m-%d_%H-%M-%S")
-    date_tag = local_now.strftime("%Y-%m-%d")
+    date_tag_short = local_now.strftime("%Y-%m-%d")
     
+    # 保存原始 Markdown
     md_file = f"{time_tag}-Report.md"
-    pdf_file = f"{time_tag}-Report.pdf"
-    
     with open(md_file, "w", encoding="utf-8") as f:
         f.write(ai_report)
     
-    generate_pdf(ai_report, pdf_file)
+    # 生成 HTML 并获取渲染后的代码
+    html_file = f"{time_tag}-Report.html"
+    html_content = generate_html(ai_report, html_file)
     
-    # 4. 发送邮件
-    send_email(ai_report, pdf_file, date_tag)
+    # 发送包含绚丽正文的 HTML 邮件
+    send_email(html_content, html_file, date_tag_short)
 
 if __name__ == "__main__":
     main()

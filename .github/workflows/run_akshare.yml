@@ -19,16 +19,11 @@ jobs:
         with:
           python-version: '3.10'
 
-      # ===== 新增：安装 Ubuntu 底层图形依赖库 =====
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libcairo2-dev pkg-config python3-dev
-
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install akshare pandas tabulate openai markdown xhtml2pdf
+          pip install akshare pandas tabulate openai markdown
+          # 删除了 xhtml2pdf，不再需要安装 Linux 绘图底层环境了
 
       - name: Run main.py
         env:
@@ -40,5 +35,5 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add *.md *.pdf
-          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 AI 自动生成量化研报" && git push)
+          git add *.md *.html
+          git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 AI 自动生成量化研报 (HTML版)" && git push)

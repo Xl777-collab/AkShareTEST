@@ -39,7 +39,7 @@ def get_market_data():
     spot_df = spot_df[spot_df['总市值'] >= 3000000000]
     spot_df = spot_df[(spot_df['换手率'] >= 3.0) & (spot_df['换手率'] <= 30.0)]
     
-    # 取换手率最高的前 150 只股票进行深度计算（兼顾效率与质量）
+    # 取换手率最高的前 300 只股票进行深度计算（兼顾效率与质量）
     pool_df = spot_df.sort_values(by='换手率', ascending=False).head(300).copy()
     stock_list = pool_df['代码'].tolist()
     
@@ -71,10 +71,10 @@ def get_market_data():
             
             # 五大核心策略条件
             cond_1 = current_price > ma30 > ma60 # 多头排列
-            cond_2 = 0.10 <= price_increase <= 0.50 # 60日涨幅适中
+            cond_2 = 0.20 <= price_increase <= 0.60 # 60日涨幅适中
             cond_3 = vol_recent_60 > vol_past_60 # 中期放量
             cond_4 = avg_vol_10 > (avg_vol_60 * 1.1) # 近期放量
-            cond_5 = current_price >= (df_recent_60['最高'].max() * 0.90) # 处于高位附近
+            cond_5 = current_price >= (df_recent_60['最高'].max() * 0.85) # 处于高位附近
             
             if cond_1 and cond_2 and cond_3 and cond_4 and cond_5:
                 stock_name = pool_df[pool_df['代码'] == code]['名称'].values[0]
